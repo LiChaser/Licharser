@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>网站爬虫 - 漏洞扫描器</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <style>
+        /* ... 保持与其他页面相同的样式 ... */
+    </style>
+</head>
+<body>
+    <!-- ... 导航栏代码 ... -->
+
+    <div class="container mt-5">
+        <div class="row justify-content-center">
+            <div class="col-md-8">
+                <div class="card">
+                    <div class="card-body">
+                        <h2 class="card-title text-center mb-4">
+                            <i class="fas fa-spider security-icon text-primary"></i>
+                            <br>网站爬虫
+                        </h2>
+                        <form id="crawlerForm">
+                            <div class="form-group mb-3">
+                                <label for="url">目标URL：</label>
+                                <input type="url" class="form-control" id="url" required>
+                            </div>
+                            <div class="form-group mb-3">
+                                <label for="max_pages">最大爬取页面数：</label>
+                                <input type="number" class="form-control" id="max_pages" value="100" min="1">
+                            </div>
+                            <button type="button" class="btn btn-primary" id="startButton" onclick="startCrawl()">开始爬取</button>
+                            <button type="button" class="btn btn-danger" id="stopButton" onclick="stopCrawl()" style="display: none;">停止爬取</button>
+                        </form>
+                    </div>
+                </div>
+
+                <div id="crawlResult" class="card result-card mt-4" style="display: none;">
+                    <div class="card-body">
+                        <h3 class="card-title">
+                            <i class="fas fa-list-ul me-2"></i>爬取结果
+                        </h3>
+                        <ul id="crawledPages" class="list-group"></ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        var socket = io();
+
+        function startCrawl() {
+            var url = document.getElementById('url').value;
+            var max_pages = document.getElementById('max_pages').value;
+            socket.emit('start_crawl', {url: url, max_pages: parseInt(max_pages)});
+            
+            document.getElementById('crawledPages').innerHTML = '';
+            document.getElementById('crawlResult').style.display = 'block';
+            document.getElementById('startButton').style.display = 'none';
+            document.getElementById('stopButton').style.display = 'inline-block';
+        }
+
+        function stopCrawl() {
+            socket.emit('stop_crawl');
+        }
+
+        socket.on('page_crawled', function(data) {
+            var li = document.createElement('li');
+            li.className = 'list-group-item';
+            li.textContent = `${data.url} - ${data.title}`;
+            document.getElementById('crawledPages').appendChild(li);
+        });
+
+        socket.on('crawl_complete', function(data) {
+            var li = document.createElement('li');
+            li.className = 'list-group-item list-group-item-success';
+            li.textContent = `爬取完成，共爬取 ${data.pages_crawled} 个页面`;
+            document.getElementById('crawledPages').appendChild(li);
+            document.getElementById('startButton').style.display = 'inline-block';
+            document.getElementById('stopButton').style.display = 'none';
+        });
+
+        socket.on('crawl_error', function(data) {
+            var li = document.createElement('li');
+            li.className = 'list-group-item list-group-item-danger';
+            li.textContent = `错误: ${data.error}`;
+            document.getElementById('crawledPages').appendChild(li);
+            document.getElementById('startButton').style.display = 'inline-block';
+            document.getElementById('stopButton').style.display = 'none';
+        });
+
+        socket.on('crawl_stopped', function(data) {
+            var li = document.createElement('li');
+            li.className = 'list-group-item list-group-item-warning';
+            li.textContent = data.message;
+            document.getElementById('crawledPages').appendChild(li);
+            document.getElementById('startButton').style.display = 'inline-block';
+            document.getElementById('stopButton').style.display = 'none';
+        });
+    </script>
+</body>
+</html>

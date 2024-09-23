@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>漏洞探测 - 漏洞扫描器</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <style>
+        body {
+            background-color: #f8f9fa;
+            background-image: url('https://www.transparenttextures.com/patterns/cubes.png');
+        }
+        .card {
+            border: none;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            background-color: rgba(255, 255, 255, 0.9);
+        }
+        .navbar {
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        .result-card {
+            margin-top: 2rem;
+        }
+        #scanResult {
+            display: none;
+        }
+        .security-icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+        }
+        .vulnerability-item {
+            transition: all 0.3s ease;
+        }
+        .vulnerability-item:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="{{ url_for('dashboard') }}">
+                <i class="fas fa-shield-alt me-2"></i>漏洞扫描器
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('dashboard') }}">
+                            <i class="fas fa-tachometer-alt me-1"></i>控制面板
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('logout') }}">
+                            <i class="fas fa-sign-out-alt me-1"></i>登出
+                        </a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-5">
+        <div class="row justify-content-center">
+            <div class="col-md-8">
+                <div class="card">
+                    <div class="card-body">
+                        <h2 class="card-title text-center mb-4">
+                            <i class="fas fa-bug security-icon text-danger"></i>
+                            <br>漏洞探测
+                        </h2>
+                        <form id="vulnscanForm">
+                            <div class="form-group mb-3">
+                                <label for="target_url">目标URL：</label>
+                                <input type="text" class="form-control" id="target_url" required>
+                            </div>
+                            <div class="form-group mb-3">
+                                <label for="scan_type">扫描类型：</label>
+                                <select class="form-control" id="scan_type">
+                                    <option value="both">XSS和SQL注入</option>
+                                    <option value="xss">仅XSS</option>
+                                    <option value="sql">仅SQL注入</option>
+                                </select>
+                            </div>
+                            <div class="form-group mb-3">
+                                <label for="method">请求方法：</label>
+                                <select class="form-control" id="method" onchange="togglePostData()">
+                                    <option value="auto">自动（GET和POST）</option>
+                                    <option value="get">仅GET</option>
+                                    <option value="post">仅POST</option>
+                                </select>
+                            </div>
+                            <div class="form-group mb-3" id="postDataGroup" style="display: none;">
+                                <label for="post_data">POST数据：</label>
+                                <div id="postDataFields">
+                                    <div class="input-group mb-2">
+                                        <input type="text" class="form-control" placeholder="键" name="post_key[]">
+                                        <input type="text" class="form-control" placeholder="值" name="post_value[]">
+                                        <button type="button" class="btn btn-outline-secondary" onclick="removePostDataField(this)">删除</button>
+                                    </div>
+                                </div>
+                                <button type="button" class="btn btn-outline-primary btn-sm" onclick="addPostDataField()">添加字段</button>
+                            </div>
+                            <button type="button" class="btn btn-primary" onclick="startVulnScan()">开始扫描</button>
+                        </form>
+                    </div>
+                </div>
+
+                <div id="scanResult" class="card result-card">
+                    <div class="card-body">
+                        <h3 class="card-title">
+                            <i class="fas fa-clipboard-list me-2"></i>探测结果
+                        </h3>
+                        <ul id="vulnerabilities" class="list-group"></ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        var socket = io();
+
+        function togglePostData() {
+            var method = document.getElementById('method').value;
+            var postDataGroup = document.getElementById('postDataGroup');
+            postDataGroup.style.display = (method === 'post' || method === 'auto') ? 'block' : 'none';
+        }
+
+        function addPostDataField() {
+            var postDataFields = document.getElementById('postDataFields');
+            var newField = document.createElement('div');
+            newField.className = 'input-group mb-2';
+            newField.innerHTML = `
+                <input type="text" class="form-control" placeholder="键" name="post_key[]">
+                <input type="text" class="form-control" placeholder="值" name="post_value[]">
+                <button type="button" class="btn btn-outline-secondary" onclick="removePostDataField(this)">删除</button>
+            `;
+            postDataFields.appendChild(newField);
+        }
+
+        function removePostDataField(button) {
+            button.parentElement.remove();
+        }
+
+        function startVulnScan() {
+            var target_url = document.getElementById('target_url').value;
+            var scan_type = document.getElementById('scan_type').value;
+            var method = document.getElementById('method').value;
+            
+            var post_data = {};
+            var post_keys = document.getElementsByName('post_key[]');
+            var post_values = document.getElementsByName('post_value[]');
+            for (var i = 0; i < post_keys.length; i++) {
+                if (post_keys[i].value) {
+                    post_data[post_keys[i].value] = post_values[i].value;
+                }
+            }
+
+            socket.emit('start_vulnscan', {
+                target_url: target_url,
+                scan_type: scan_type,
+                method: method,
+                post_data: JSON.stringify(post_data)
+            });
+
+            // 清空之前的结果
+            document.getElementById('vulnerabilities').innerHTML = '';
+            // 显示结果区域
+            document.getElementById('scanResult').style.display = 'block';
+        }
+
+        function escapeHtml(unsafe) {
+            return unsafe
+                 .replace(/&/g, "&amp;")
+                 .replace(/</g, "&lt;")
+                 .replace(/>/g, "&gt;")
+                 .replace(/"/g, "&quot;")
+                 .replace(/'/g, "&#039;");
+        }
+
+        socket.on('vulnscan_result', function(data) {
+            var vulnerabilities = data.vulnerabilities;
+            if (vulnerabilities.length === 0) {
+                var li = document.createElement('li');
+                li.innerHTML = '<i class="fas fa-check-circle me-2"></i>未发现漏洞';
+                li.className = 'list-group-item list-group-item-success vulnerability-item';
+                document.getElementById('vulnerabilities').appendChild(li);
+            } else {
+                vulnerabilities.forEach(function(vuln) {
+                    var li = document.createElement('li');
+                    li.innerHTML = '<i class="fas fa-exclamation-triangle me-2"></i>' + escapeHtml(vuln);
+                    li.className = 'list-group-item list-group-item-danger vulnerability-item';
+                    document.getElementById('vulnerabilities').appendChild(li);
+                });
+            }
+        });
+
+        socket.on('vulnscan_error', function(data) {
+            console.error('Vulnerability scan error:', data.error);
+            var li = document.createElement('li');
+            li.innerHTML = '<i class="fas fa-times-circle me-2"></i>错误: ' + data.error;
+            li.className = 'list-group-item list-group-item-danger vulnerability-item';
+            document.getElementById('vulnerabilities').appendChild(li);
+        });
+    </script>
+</body>
+</html>

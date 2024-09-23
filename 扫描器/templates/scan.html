@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>端口扫描 - 漏洞扫描器</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <style>
+        body {
+            background-color: #f8f9fa;
+        }
+        .card {
+            border: none;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .navbar {
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        .result-card {
+            margin-top: 2rem;
+        }
+        .port-list {
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        #scanProgress {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="{{ url_for('dashboard') }}">漏洞扫描器</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('dashboard') }}">控制面板</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('logout') }}">登出</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-5">
+        <div class="row justify-content-center">
+            <div class="col-md-8">
+                <div class="card">
+                    <div class="card-body">
+                        <h2 class="card-title text-center mb-4"><i class="fas fa-network-wired me-2"></i>端口扫描</h2>
+                        <form id="scanForm">
+                            <div class="mb-3">
+                                <label for="target" class="form-label">目标IP地址</label>
+                                <input type="text" class="form-control" id="target" name="target" required placeholder="例如: 192.168.1.1">
+                            </div>
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label for="start_port" class="form-label">起始端口</label>
+                                    <input type="number" class="form-control" id="start_port" name="start_port" required placeholder="例如: 1">
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label for="end_port" class="form-label">结束端口</label>
+                                    <input type="number" class="form-control" id="end_port" name="end_port" required placeholder="例如: 1000">
+                                </div>
+                            </div>
+                            <button type="submit" class="btn btn-primary w-100">扫描</button>
+                        </form>
+                    </div>
+                </div>
+
+                <div id="scanProgress" class="card result-card mt-4">
+                    <div class="card-body">
+                        <h3 class="card-title">扫描进度</h3>
+                        <div class="progress mb-3">
+                            <div id="progressBar" class="progress-bar" role="progressbar" style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
+                        </div>
+                        <h4>开放端口</h4>
+                        <ul id="openPorts" class="list-group port-list"></ul>
+                        <h4 class="mt-3">关闭端口</h4>
+                        <p id="closedPortsCount">0 个端口关闭</p>
+                        <canvas id="portChart" class="mt-4"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        var socket = io();
+        var openPorts = [];
+        var closedPorts = [];
+        var chart;
+
+        document.getElementById('scanForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            openPorts = [];
+            closedPorts = [];
+            document.getElementById('scanProgress').style.display = 'block';
+            document.getElementById('openPorts').innerHTML = '';
+            document.getElementById('closedPortsCount').textContent = '0 个端口关闭';
+            document.getElementById('progressBar').style.width = '0%';
+            document.getElementById('progressBar').textContent = '0%';
+            
+            if (chart) {
+                chart.destroy();
+            }
+
+            var target = document.getElementById('target').value;
+            var start_port = document.getElementById('start_port').value;
+            var end_port = document.getElementById('end_port').value;
+            
+            socket.emit('start_scan', {target: target, start_port: start_port, end_port: end_port});
+        });
+
+        socket.on('port_result', function(data) {
+            if (data.status === 'open') {
+                openPorts.push(data.port);
+                var li = document.createElement('li');
+                li.textContent = data.port;
+                li.className = 'list-group-item';
+                document.getElementById('openPorts').appendChild(li);
+            } else {
+                closedPorts.push(data.port);
+            }
+            document.getElementById('closedPortsCount').textContent = closedPorts.length + ' 个端口关闭';
+            
+            var totalPorts = openPorts.length + closedPorts.length;
+            var progress = (totalPorts / (end_port - start_port + 1)) * 100;
+            document.getElementById('progressBar').style.width = progress + '%';
+            document.getElementById('progressBar').textContent = Math.round(progress) + '%';
+            
+            updateChart();
+        });
+
+        socket.on('scan_complete', function(data) {
+            console.log('Scan complete:', data);
+        });
+
+        function updateChart() {
+            var ctx = document.getElementById('portChart').getContext('2d');
+            if (chart) {
+                chart.destroy();
+            }
+            chart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: ['开放端口', '关闭端口'],
+                    datasets: [{
+                        label: '端口数量',
+                        data: [openPorts.length, closedPorts.length],
+                        backgroundColor: [
+                            'rgba(40, 167, 69, 0.6)',
+                            'rgba(220, 53, 69, 0.6)'
+                        ],
+                        borderColor: [
+                            'rgba(40, 167, 69, 1)',
+                            'rgba(220, 53, 69, 1)'
+                        ],
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: '端口数量'
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        title: {
+                            display: true,
+                            text: '端口扫描结果'
+                        }
+                    }
+                }
+            });
+        }
+    </script>
+</body>
+</html>
